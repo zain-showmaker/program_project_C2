@@ -1,0 +1,799 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: PC Components Warehouse Management API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: components
+    description: Inventory components
+  - name: sales
+    description: Sales transactions
+  - name: suggestions
+    description: Smart category and model suggestions
+  - name: analytics
+    description: Dashboard analytics
+  - name: Auth
+    description: Browser and mobile authentication endpoints.
+paths:
+  /auth/user:
+    get:
+      tags: [Auth]
+      operationId: getCurrentAuthUser
+      summary: Get the currently authenticated user
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationSessionHeader'
+        - $ref: '#/components/parameters/SessionCookie'
+      responses:
+        '200':
+          description: Auth status resolved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthUserEnvelope'
+  /login:
+    get:
+      tags: [Auth]
+      operationId: beginBrowserLogin
+      summary: Start the browser OIDC login flow
+      parameters:
+        - name: returnTo
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to the OIDC authorization endpoint.
+  /callback:
+    get:
+      tags: [Auth]
+      operationId: handleBrowserLoginCallback
+      summary: Complete the browser OIDC login flow
+      parameters:
+        - name: code
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: iss
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uri
+      responses:
+        '302':
+          description: Redirect to the returnTo path on success or /api/login on failure.
+  /logout:
+    get:
+      tags: [Auth]
+      operationId: logoutBrowserSession
+      summary: Clear the session and begin OIDC logout
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationSessionHeader'
+        - $ref: '#/components/parameters/SessionCookie'
+      responses:
+        '302':
+          description: Redirect to the OIDC provider logout URL.
+  /mobile-auth/token-exchange:
+    post:
+      tags: [Auth]
+      operationId: exchangeMobileAuthorizationCode
+      summary: Exchange a mobile OIDC code for a session token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MobileTokenExchangeRequest'
+      responses:
+        '200':
+          description: Session created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MobileTokenExchangeSuccess'
+        '400':
+          description: Missing or invalid required fields.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: Token did not contain usable claims.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          description: Token exchange failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /mobile-auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logoutMobileSession
+      summary: Delete a mobile session token
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationSessionHeader'
+      responses:
+        '200':
+          description: Logout processed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogoutSuccess'
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /components:
+    get:
+      operationId: listComponents
+      tags: [components]
+      summary: List inventory components
+      parameters:
+        - in: query
+          name: category
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: search
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Components list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Component"
+    post:
+      operationId: createComponent
+      tags: [components]
+      summary: Add new component (auto-assigns ID)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateComponent"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Component"
+
+  /components/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+    patch:
+      operationId: updateComponent
+      tags: [components]
+      summary: Update price and/or stock for a component
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateComponent"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Component"
+    delete:
+      operationId: deleteComponent
+      tags: [components]
+      summary: Remove a component
+      responses:
+        "204":
+          description: Deleted
+
+  /components/bulk-delete:
+    post:
+      operationId: bulkDeleteComponents
+      tags: [components]
+      summary: Delete multiple components by id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkIds"
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkOperationResult"
+
+  /sales:
+    get:
+      operationId: listSales
+      tags: [sales]
+      summary: Sales history (newest first)
+      responses:
+        "200":
+          description: Sales list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Sale"
+    post:
+      operationId: recordSale
+      tags: [sales]
+      summary: Record a sale (decrements stock)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSale"
+      responses:
+        "201":
+          description: Sale recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Sale"
+
+  /sales/{id}/return:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+    post:
+      operationId: returnSale
+      tags: [sales]
+      summary: Mark a sale returned and restock the component
+      responses:
+        "200":
+          description: Returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Sale"
+
+  /suggestions/categories:
+    get:
+      operationId: listCategories
+      tags: [suggestions]
+      summary: Available smart categories
+      responses:
+        "200":
+          description: Categories
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /suggestions/{category}:
+    parameters:
+      - in: path
+        name: category
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getCategorySuggestions
+      tags: [suggestions]
+      summary: Smart model suggestions with approximate market prices
+      responses:
+        "200":
+          description: Suggestions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Suggestion"
+
+  /analytics/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [analytics]
+      summary: Dashboard summary (totals, low stock, today's revenue, profit)
+      responses:
+        "200":
+          description: Summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
+  /analytics/daily-revenue:
+    get:
+      operationId: getDailyRevenue
+      tags: [analytics]
+      summary: Daily revenue + profit breakdown (last 30 days)
+      responses:
+        "200":
+          description: Daily revenue series
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DailyRevenuePoint"
+
+  /analytics/category-revenue:
+    get:
+      operationId: getCategoryRevenue
+      tags: [analytics]
+      summary: Revenue & profit grouped by category
+      responses:
+        "200":
+          description: Category revenue
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CategoryRevenuePoint"
+
+  /analytics/low-stock:
+    get:
+      operationId: getLowStock
+      tags: [analytics]
+      summary: Components with stock below threshold
+      parameters:
+        - in: query
+          name: threshold
+          required: false
+          schema:
+            type: integer
+            default: 3
+      responses:
+        "200":
+          description: Low stock items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Component"
+
+  /analytics/best-sellers:
+    get:
+      operationId: getBestSellers
+      tags: [analytics]
+      summary: Best-selling components by units sold
+      parameters:
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            default: 10
+      responses:
+        "200":
+          description: Best sellers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProductPerformance"
+
+  /analytics/slow-movers:
+    get:
+      operationId: getSlowMovers
+      tags: [analytics]
+      summary: Items with low/no recent sales
+      parameters:
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            default: 10
+      responses:
+        "200":
+          description: Slow movers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProductPerformance"
+
+  /analytics/reorder:
+    get:
+      operationId: getReorderList
+      tags: [analytics]
+      summary: Suggested reorder list ranked by stockout risk
+      responses:
+        "200":
+          description: Reorder suggestions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ReorderItem"
+
+components:
+  parameters:
+    AuthorizationSessionHeader:
+      name: Authorization
+      in: header
+      required: false
+      description: Opaque session token — `Bearer <sid>`.
+      schema:
+        type: string
+    SessionCookie:
+      name: sid
+      in: cookie
+      required: false
+      description: Browser session cookie.
+      schema:
+        type: string
+  schemas:
+    AuthUser:
+      type: object
+      required: [id, email, firstName, lastName, profileImageUrl]
+      properties:
+        id:
+          type: string
+        email:
+          type: [string, 'null']
+          format: email
+        firstName:
+          type: [string, 'null']
+        lastName:
+          type: [string, 'null']
+        profileImageUrl:
+          type: [string, 'null']
+    AuthUserEnvelope:
+      type: object
+      required: [user]
+      properties:
+        user:
+          oneOf:
+            - $ref: '#/components/schemas/AuthUser'
+            - type: 'null'
+    MobileTokenExchangeRequest:
+      type: object
+      required: [code, code_verifier, redirect_uri, state]
+      properties:
+        code:
+          type: string
+          minLength: 1
+        code_verifier:
+          type: string
+          minLength: 1
+        redirect_uri:
+          type: string
+          minLength: 1
+          format: uri
+        state:
+          type: string
+          minLength: 1
+        nonce:
+          type: string
+          minLength: 1
+    MobileTokenExchangeSuccess:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+    LogoutSuccess:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+          const: true
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required: [status]
+
+    Component:
+      type: object
+      properties:
+        id:
+          type: integer
+        category:
+          type: string
+        model:
+          type: string
+        quantity:
+          type: integer
+        price:
+          type: number
+        cost:
+          type: number
+        imageUrl:
+          type: string
+          nullable: true
+        marginPct:
+          type: number
+          description: Profit margin as a percentage (0-100)
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, category, model, quantity, price, cost, marginPct, createdAt]
+
+    CreateComponent:
+      type: object
+      properties:
+        category:
+          type: string
+          minLength: 1
+        model:
+          type: string
+          minLength: 1
+        quantity:
+          type: integer
+          minimum: 0
+        price:
+          type: number
+          minimum: 0.01
+        cost:
+          type: number
+          minimum: 0
+        imageUrl:
+          type: string
+      required: [category, model, quantity, price]
+
+    UpdateComponent:
+      type: object
+      properties:
+        price:
+          type: number
+          minimum: 0.01
+        cost:
+          type: number
+          minimum: 0
+        imageUrl:
+          type: string
+          nullable: true
+        addQuantity:
+          type: integer
+          description: Quantity to add (can be negative to deduct)
+        setQuantity:
+          type: integer
+          minimum: 0
+          description: Set absolute stock level (overrides addQuantity)
+
+    BulkIds:
+      type: object
+      properties:
+        ids:
+          type: array
+          items:
+            type: integer
+          minItems: 1
+      required: [ids]
+
+    BulkOperationResult:
+      type: object
+      properties:
+        deleted:
+          type: integer
+      required: [deleted]
+
+    Sale:
+      type: object
+      properties:
+        id:
+          type: integer
+        componentId:
+          type: integer
+        category:
+          type: string
+        model:
+          type: string
+        quantity:
+          type: integer
+        unitPrice:
+          type: number
+        unitCost:
+          type: number
+        total:
+          type: number
+        totalCost:
+          type: number
+        profit:
+          type: number
+        customerName:
+          type: string
+          nullable: true
+        isReturned:
+          type: boolean
+        returnedAt:
+          type: string
+          format: date-time
+          nullable: true
+        soldAt:
+          type: string
+          format: date-time
+      required: [id, componentId, category, model, quantity, unitPrice, unitCost, total, totalCost, profit, isReturned, soldAt]
+
+    CreateSale:
+      type: object
+      properties:
+        componentId:
+          type: integer
+        quantity:
+          type: integer
+          minimum: 1
+        customerName:
+          type: string
+      required: [componentId, quantity]
+
+    Suggestion:
+      type: object
+      properties:
+        model:
+          type: string
+        approxPrice:
+          type: number
+        approxCost:
+          type: number
+      required: [model, approxPrice, approxCost]
+
+    DashboardSummary:
+      type: object
+      properties:
+        totalItems:
+          type: integer
+        totalUnits:
+          type: integer
+        totalValue:
+          type: number
+        totalCostValue:
+          type: number
+        lowStockCount:
+          type: integer
+        lowStockThreshold:
+          type: integer
+        todayRevenue:
+          type: number
+        todayProfit:
+          type: number
+        todayTransactions:
+          type: integer
+        totalRevenue:
+          type: number
+        totalProfit:
+          type: number
+        marginPct:
+          type: number
+        totalTransactions:
+          type: integer
+        topCategory:
+          type: string
+          nullable: true
+      required:
+        - totalItems
+        - totalUnits
+        - totalValue
+        - totalCostValue
+        - lowStockCount
+        - lowStockThreshold
+        - todayRevenue
+        - todayProfit
+        - todayTransactions
+        - totalRevenue
+        - totalProfit
+        - marginPct
+        - totalTransactions
+
+    DailyRevenuePoint:
+      type: object
+      properties:
+        date:
+          type: string
+        revenue:
+          type: number
+        profit:
+          type: number
+        transactions:
+          type: integer
+      required: [date, revenue, profit, transactions]
+
+    CategoryRevenuePoint:
+      type: object
+      properties:
+        category:
+          type: string
+        revenue:
+          type: number
+        profit:
+          type: number
+        units:
+          type: integer
+      required: [category, revenue, profit, units]
+
+    ProductPerformance:
+      type: object
+      properties:
+        componentId:
+          type: integer
+        category:
+          type: string
+        model:
+          type: string
+        unitsSold:
+          type: integer
+        revenue:
+          type: number
+        profit:
+          type: number
+        currentStock:
+          type: integer
+      required: [componentId, category, model, unitsSold, revenue, profit, currentStock]
+
+    ReorderItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        category:
+          type: string
+        model:
+          type: string
+        currentStock:
+          type: integer
+        sold30d:
+          type: integer
+        daysOfStock:
+          type: number
+          nullable: true
+        urgency:
+          type: string
+          description: critical | low | ok
+      required: [id, category, model, currentStock, sold30d, urgency]
